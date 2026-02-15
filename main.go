@@ -59,7 +59,7 @@ func main() {
 		return
 	}
 
-	fmt.Println(input)
+	fmt.Print(strings.TrimSuffix(input, "\n"))
 
 	client := copilot.NewClient(&copilot.ClientOptions{
 		LogLevel: "error",
