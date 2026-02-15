@@ -12,8 +12,6 @@
 
 ## インストール
 
-以下のコマンドでインストールできます：
-
 ```sh
 go install github.com/otakakot/clijp@latest
 ```
@@ -25,7 +23,7 @@ go install github.com/otakakot/clijp@latest
 ### 使用例
 
 ```sh
-> go help | clijp
+❯ go help | clijp
 Go is a tool for managing Go source code.
 
 Usage:
