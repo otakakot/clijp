@@ -3,10 +3,13 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +19,7 @@ import (
 const (
 	prompt  = "コマンドラインで受け取った内容を日本語に翻訳してください。コードや記号はそのまま保持してください。結果のみを翻訳した状態で、元の形式を保持したまま出力してください。コードブロックなども不要です。：\n\n%s"
 	model   = "gpt-5-mini" // ref: https://docs.github.com/en/copilot/concepts/billing/copilot-requests
-	version = "0.0.3"
+	version = "0.0.4"
 	help    = "clijp v" + version + " - 標準入力で受け取った内容を Copilot SDK を使って日本語に翻訳するツール"
 )
 
@@ -64,6 +67,28 @@ func main() {
 
 	ctx := context.Background()
 
+	// Prepare cache path: ~/.cache/clijp/<sha256>.txt
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatalf("ホームディレクトリの取得に失敗しました: %v", err)
+	}
+
+	cacheDir := filepath.Join(home, ".cache", "clijp")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		log.Printf("キャッシュディレクトリの作成に失敗しました: %v", err)
+	}
+
+	h := sha256.Sum256([]byte(input))
+	fname := hex.EncodeToString(h[:]) + ".txt"
+	cachePath := filepath.Join(cacheDir, fname)
+
+	if data, err := os.ReadFile(cachePath); err == nil {
+		time.Sleep(50 * time.Millisecond)
+		fmt.Print("\n=== 日本語翻訳 (キャッシュ) ===\n\n")
+		fmt.Print(string(data))
+		return
+	}
+
 	done := make(chan struct{})
 	cleared := make(chan struct{})
 	go func() {
@@ -90,6 +115,10 @@ func main() {
 
 	if err != nil {
 		log.Fatalf("翻訳に失敗しました: %v", err)
+	}
+
+	if err := os.WriteFile(cachePath, []byte(translated), 0o644); err != nil {
+		log.Printf("キャッシュの書き込みに失敗しました: %v", err)
 	}
 
 	time.Sleep(50 * time.Millisecond)
