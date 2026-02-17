@@ -16,7 +16,7 @@ import (
 const (
 	prompt  = "コマンドラインで受け取った内容を日本語に翻訳してください。コードや記号はそのまま保持してください。結果のみを翻訳した状態で、元の形式を保持したまま出力してください。コードブロックなども不要です。：\n\n%s"
 	model   = "gpt-5-mini" // ref: https://docs.github.com/en/copilot/concepts/billing/copilot-requests
-	version = "0.0.2"
+	version = "0.0.3"
 	help    = "clijp v" + version + " - 標準入力で受け取った内容を Copilot SDK を使って日本語に翻訳するツール"
 )
 
@@ -62,75 +62,68 @@ func main() {
 
 	fmt.Print(strings.TrimSuffix(input, "\n"))
 
-	client := copilot.NewClient(&copilot.ClientOptions{
-		LogLevel: "error",
-	})
-
 	ctx := context.Background()
 
-	if err := client.Start(ctx); err != nil {
-		log.Fatalf("Copilot クライアントの開始に失敗しました: %v", err)
-	}
-	defer client.Stop()
-
-	session, err := client.CreateSession(ctx, &copilot.SessionConfig{
-		Model: model,
-	})
-	if err != nil {
-		log.Fatalf("セッションの作成に失敗しました: %v", err)
-	}
-	defer session.Destroy()
-
-	translation := strings.Builder{}
-
-	done := make(chan bool)
-
-	loadingDone := make(chan bool)
-
-	session.On(func(event copilot.SessionEvent) {
-		if event.Type == "assistant.message" {
-			if event.Data.Content != nil {
-				translation.WriteString(*event.Data.Content)
-			}
-		}
-		if event.Type == "session.idle" {
-			close(done)
-		}
-	})
-
+	done := make(chan struct{})
+	cleared := make(chan struct{})
 	go func() {
 		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		i := 0
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-
 		for {
 			select {
-			case <-loadingDone:
-				fmt.Fprint(os.Stderr, "\r\033[K")
+			case <-done:
+				fmt.Fprintf(os.Stderr, "\r\033[K")
+				close(cleared)
 				return
-			case <-ticker.C:
+			default:
 				fmt.Fprintf(os.Stderr, "\r%s 翻訳中...", frames[i%len(frames)])
 				i++
-			case <-ctx.Done():
-				return
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}()
 
-	translationPrompt := fmt.Sprintf(prompt, input)
+	translated, err := TranslateJP(ctx, input)
 
-	if _, err = session.Send(ctx, copilot.MessageOptions{
-		Prompt: translationPrompt,
-	}); err != nil {
-		close(loadingDone)
-		log.Fatalf("メッセージの送信に失敗しました: %v", err)
+	close(done)
+	<-cleared
+
+	if err != nil {
+		log.Fatalf("翻訳に失敗しました: %v", err)
 	}
 
-	<-done
-	close(loadingDone)
 	time.Sleep(50 * time.Millisecond)
 
 	fmt.Print("\n=== 日本語翻訳 ===\n\n")
-	fmt.Print(translation.String())
+	fmt.Print(translated)
+}
+
+func TranslateJP(ctx context.Context, input string) (string, error) {
+	client := copilot.NewClient(&copilot.ClientOptions{
+		LogLevel: "error",
+	})
+
+	if err := client.Start(ctx); err != nil {
+		return "", fmt.Errorf("Copilot クライアントの開始に失敗しました: %w", err)
+	}
+	defer client.Stop()
+
+	session, err := client.CreateSession(ctx, &copilot.SessionConfig{Model: model})
+	if err != nil {
+		return "", fmt.Errorf("セッションの作成に失敗しました: %w", err)
+	}
+	defer session.Destroy()
+
+	resp, err := session.SendAndWait(ctx, copilot.MessageOptions{
+		Prompt: fmt.Sprintf(prompt, input),
+	})
+	if err != nil {
+		return "", fmt.Errorf("メッセージの送信に失敗しました: %w", err)
+	}
+
+	if resp == nil || resp.Data.Content == nil {
+		return "", fmt.Errorf("Copilot から有効なレスポンスが返ってきませんでした")
+	}
+
+	return *resp.Data.Content, nil
 }
