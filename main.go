@@ -19,7 +19,7 @@ import (
 const (
 	prompt  = "コマンドラインで受け取った内容を日本語に翻訳してください。コードや記号はそのまま保持してください。結果のみを翻訳した状態で、元の形式を保持したまま出力してください。コードブロックなども不要です。：\n\n%s"
 	model   = "gpt-5-mini" // ref: https://docs.github.com/en/copilot/concepts/billing/copilot-requests
-	version = "0.0.4"
+	version = "0.0.5"
 	help    = "clijp v" + version + " - 標準入力で受け取った内容を Copilot SDK を使って日本語に翻訳するツール"
 )
 
@@ -142,6 +142,9 @@ func TranslateJP(ctx context.Context, input string) (string, error) {
 		return "", fmt.Errorf("セッションの作成に失敗しました: %w", err)
 	}
 	defer session.Destroy()
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 
 	resp, err := session.SendAndWait(ctx, copilot.MessageOptions{
 		Prompt: fmt.Sprintf(prompt, input),
